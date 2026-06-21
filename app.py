@@ -2,69 +2,45 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="F1 Race Engineer v4 — Fixed & Mean", layout="wide")
-st.title("🧑‍🔧 F1 Race Engineer v4 — Fixed & Mean")
-st.caption("Tuned on your Silverstone barge laps • Now catches high-speed planted + mid push + exit spin")
+st.set_page_config(page_title="F1 Race Engineer v5", layout="wide")
+st.title("🧑‍🔧 F1 Race Engineer v5")
+st.caption("Now detects extreme-but-effective setups like yours • Exploits the weird physics you found")
 
-uploaded_file = st.file_uploader("Drop your F1 2026 CSV here", type=["csv"])
+uploaded_file = st.file_uploader("Drop CSV here", type=["csv"])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file, sep=None, engine='python')
     if 'validBin' in df.columns:
         df = df[df['validBin'] == 1].copy()
     
-    # Speed calculation
     df['speed_kmh'] = np.sqrt(df[['velocity_X','velocity_Y','velocity_Z']].pow(2).sum(axis=1)) * 3.6
 
     issues = []
-    recs = set()  # dedup
+    recs = []
 
-    # HIGH SPEED - tuned for your max-front glued shit
+    # Extreme setup detector (the useful addition based on your observation)
+    front_wing = df['wing_setup_0'].iloc[0] if 'wing_setup_0' in df.columns else 0
+    rear_wing = df['wing_setup_1'].iloc[0] if 'wing_setup_1' in df.columns else 0
+    front_arb = df['arb_setup_0'].iloc[0] if 'arb_setup_0' in df.columns else 0
+    rear_arb = df['arb_setup_1'].iloc[0] if 'arb_setup_1' in df.columns else 0
+    
+    tyre_cols = [c for c in df.columns if any(x in c.lower() for x in ['tyre_wear', 'tyre_damage', 'tyre_blister'])]
+    avg_wear = df[tyre_cols].mean().mean() if tyre_cols else 5.0
+    
+    if (front_wing > 35 or rear_wing > 35 or front_arb > 15 or rear_arb > 15) and avg_wear < 2.0:
+        recs.append("🔥 EXTREME SETUP EXPLOIT: Wings + ARBs maxed but car is stable + tires barely wear • This is the meta sweet spot")
+        recs.append("PUSH FURTHER: Try front wing +2 more or rear ARB max on high-speed tracks • One-less-stop potential is real")
+        issues.append("Your insane-looking setup is actually god-tier in this physics model")
+
+    # High speed
     hs = df[df['speed_kmh'] > 205]
     if len(hs) > 70:
         lat = hs['gforce_Y'].abs().mean()
         if lat < 1.25:
-            recs.add("🔥 HIGH SPEED: Pull rear wing -5 to -8 clicks — car is WAY too planted, zero rotation")
-            issues.append("High-speed under-rotation (too much front wing)")
+            recs.append("HIGH SPEED: Reduce rear wing 4-7 clicks if you want more rotation")
+            issues.append("High-speed under-rotation")
         elif lat > 1.65:
-            recs.add("🔥 HIGH SPEED: Add rear wing +5 — sliding badly")
+            recs.append("HIGH SPEED: Add rear wing +4-6 clicks")
 
-    # MID-CORNER
-    mid = df[(df['speed_kmh'] > 80) & (df['speed_kmh'] < 210)]
-    if len(mid) > 50:
-        yaw = mid['angular_vel_Y'].abs().mean()
-        if yaw < 0.48:
-            recs.add("🔥 MID-CORNER: Soften front ARB -2 or stiffen rear +2 — heavy push/understeer")
-            issues.append("Understeer / pushing in mid-corner")
-
-    # EXIT TRACTION
-    ex = df[df['throttle'] > 0.7]
-    if len(ex) > 35 and 'wheel_speed_2' in ex.columns:
-        slip = (ex['wheel_speed_2'] - ex['speed_kmh']).mean()
-        if slip > 12:
-            recs.add("🔥 EXIT: Increase diff on-throttle preload +3 — wheelspin city")
-            issues.append("Traction loss on exit")
-
-    # BRAKING (lockup check)
-    br = df[df['brake'] > 0.6]
-    if len(br) > 20 and 'wheel_speed_0' in br.columns:
-        lock = (br['speed_kmh'] - br['wheel_speed_0']).mean()
-        if lock > 8:
-            recs.add("🔥 BRAKING: Move brake bias forward 5-8% — front locking")
-            issues.append("Brake lockup")
-
-    # Output
-    st.subheader("What this lap actually shows")
-    if issues:
-        for i in issues:
-            st.error(i)
-    else:
-        st.success("Car is suspiciously good… or you drove it too clean again")
-
-    st.subheader("Setup Recommendations")
-    for r in recs:
-        st.warning(r)
-
-    st.caption("Full functional version • No spam • Tuned on your exact files • Drop next CSV to test")
-else:
-    st.info("Upload the CSV and it will roast the setup properly now.")
+    # Mid-corner
+    mid = df[(df['speed_kmh'] > 80) & (df['speed
