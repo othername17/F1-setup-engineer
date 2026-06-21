@@ -2,114 +2,102 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="F1 Virtual Race Engineer", layout="wide")
-st.title("🏎️ F1 25/26 Virtual Race Engineer")
-st.markdown("**Setup-Focused Telemetry Analysis** — tells you exactly what to change on the car.")
+st.set_page_config(page_title="F1 Race Engineer v2", layout="wide")
+st.title("F1 Automated Race Engineer — Proper Version")
+st.caption("Upload your telemetry CSV. Gets specific advice based on what the lap actually shows. No more copy-paste bullshit.")
 
-uploaded_file = st.file_uploader("Upload Telemetry CSV", type=["csv"])
-
-@st.cache_data
-def load_data(file):
-    if file is None:
-        return None
-    try:
-        df = pd.read_csv(file, sep='\t')
-        if 'validBin' in df.columns:
-            df = df[df['validBin'] == 1].copy()
-        if all(col in df.columns for col in ['velocity_X', 'velocity_Y', 'velocity_Z']):
-            df['speed_kmh'] = np.sqrt(
-                df['velocity_X']**2 + df['velocity_Y']**2 + df['velocity_Z']**2
-            ) * 3.6
-        return df
-    except Exception as e:
-        st.error(f"Error loading file: {e}")
-        return None
-
-def analyze_setup(df):
-    if df is None or df.empty:
-        st.warning("No valid data to analyze.")
-        return
-
-    st.subheader("🔧 Setup Recommendations")
-
-    recommendations = []
-
-    # High-speed aero balance
-    if 'speed_kmh' in df.columns and 'gforce_Y' in df.columns:
-        high_speed = df[df['speed_kmh'] > 180]
-        if not high_speed.empty:
-            avg_lat_g = high_speed['gforce_Y'].abs().mean()
-            if avg_lat_g < 1.7:
-                recommendations.append(("Rear Wing", "+4 to +6 clicks — car lacks rotation in high-speed corners"))
-            elif avg_lat_g > 2.3:
-                recommendations.append(("Front Wing", "-3 to -5 clicks — too much front grip / pushing at high speed"))
-
-    # Mid-corner balance (yaw rate)
-    if all(col in df.columns for col in ['angular_vel_Y', 'speed_kmh', 'throttle', 'brake']):
-        mid_corner = df[
-            (df['throttle'] < 0.1) & 
-            (df['brake'] < 0.1) & 
-            (df['speed_kmh'] > 90)
-        ]
-        if not mid_corner.empty:
-            avg_yaw = mid_corner['angular_vel_Y'].abs().mean()
-            if avg_yaw < 0.75:
-                recommendations.append(("Front ARB", "Soften front ARB by 3-4 clicks"))
-                recommendations.append(("Rear Wing", "+2 clicks for more rotation"))
-            elif avg_yaw > 1.5:
-                recommendations.append(("Rear ARB", "Stiffen rear ARB by 2-3 clicks"))
-                recommendations.append(("Front Wing", "-2 clicks to reduce over-rotation"))
-
-    # Corner exit traction
-    if all(col in df.columns for col in ['throttle', 'wheel_speed_0', 'wheel_speed_1', 'speed_kmh']):
-        exit_data = df[df['throttle'] > 0.6]
-        if not exit_data.empty:
-            rear_wheel_speed = exit_data[['wheel_speed_0', 'wheel_speed_1']].mean(axis=1) * 3.6
-            slip = (rear_wheel_speed - exit_data['speed_kmh']).abs().mean()
-            if slip > 12:
-                recommendations.append(("Differential", "Increase on-throttle diff preload by 15-25%"))
-                recommendations.append(("Rear Toe", "Add more toe-in"))
-
-    # Braking stability
-    if all(col in df.columns for col in ['brake', 'wheel_speed_2', 'wheel_speed_3', 'speed_kmh']):
-        braking = df[df['brake'] > 0.7]
-        if not braking.empty:
-            front_wheel_speed = braking[['wheel_speed_2', 'wheel_speed_3']].mean(axis=1) * 3.6
-            lockup = (braking['speed_kmh'] - front_wheel_speed).mean()
-            if lockup > 18:
-                recommendations.append(("Brake Bias", "Move brake bias 3-5% rearward"))
-
-    if recommendations:
-        for component, advice in recommendations:
-            st.warning(f"**{component}**: {advice}")
-    else:
-        st.success("✅ Your current setup looks well balanced. No major changes recommended.")
-
-    # Key metrics
-    st.subheader("📊 Key Session Metrics")
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if 'speed_kmh' in df.columns:
-            st.metric("Max Speed", f"{df['speed_kmh'].max():.1f} km/h")
-    
-    with col2:
-        if 'gforce_Y' in df.columns:
-            st.metric("Peak Lateral G", f"{df['gforce_Y'].abs().max():.2f} g")
-    
-    with col3:
-        brake_cols = ['brake_temp_0', 'brake_temp_1', 'brake_temp_2', 'brake_temp_3']
-        if all(col in df.columns for col in brake_cols):
-            max_brake = df[brake_cols].max().max()
-            st.metric("Max Brake Temp", f"{max_brake:.0f} °C")
-    
-    with col4:
-        if 'lapNum' in df.columns:
-            st.metric("Laps Analyzed", df['lapNum'].nunique())
+uploaded_file = st.file_uploader("Drop your F1 telemetry CSV here", type=["csv", "txt"])
 
 if uploaded_file is not None:
-    df = load_data(uploaded_file)
-    if df is not None:
-        analyze_setup(df)
+    try:
+        df = pd.read_csv(uploaded_file, sep=None, engine='python')
+    except:
+        df = pd.read_csv(uploaded_file, sep='\t')
+
+    # Clean + calculate speed
+    if 'validBin' in df.columns:
+        df = df[df['validBin'] == 1].copy()
+
+    df['speed_kmh'] = np.sqrt(df['velocity_X']**2 + df['velocity_Y']**2 + df['velocity_Z']**2) * 3.6
+
+    recommendations = []
+    issues_found = []
+
+    # === HIGH SPEED AERO ===
+    high_speed = df[df['speed_kmh'] > 240]
+    if len(high_speed) > 50:
+        avg_lat = high_speed['gforce_Y'].abs().mean()
+        if avg_lat > 1.9:
+            recommendations.append("HIGH SPEED: Add +3 to +5 clicks rear wing — car is sliding too much at speed")
+            issues_found.append("High-speed understeer / instability")
+        elif avg_lat < 1.1:
+            recommendations.append("HIGH SPEED: Reduce rear wing 2-4 clicks or add front wing — car feels planted but won't rotate")
+
+    # === MID-CORNER BALANCE (yaw rate) ===
+    mid_corner = df[(df['speed_kmh'] > 90) & (df['speed_kmh'] < 220) & (df['angular_vel_Y'].abs() > 0.4)]
+    if len(mid_corner) > 30:
+        avg_yaw = mid_corner['angular_vel_Y'].mean()
+        if avg_yaw > 0.85:
+            recommendations.append("MID-CORNER: Stiffen front ARB +1 or soften rear ARB — oversteer detected")
+            issues_found.append("Oversteer in mid-corner")
+        elif avg_yaw < 0.35:
+            recommendations.append("MID-CORNER: Soften front ARB -1 or stiffen rear ARB — understeer / pushing")
+            issues_found.append("Understeer in mid-corner")
+
+    # === TRACTION ON EXIT ===
+    exit_phase = df[(df['throttle'] > 0.75) & (df['speed_kmh'] > 80)]
+    if len(exit_phase) > 40:
+        for wheel in ['wheel_speed_0', 'wheel_speed_1', 'wheel_speed_2', 'wheel_speed_3']:
+            if wheel in exit_phase.columns:
+                avg_slip = (exit_phase[wheel] - exit_phase['speed_kmh']).mean()
+                if avg_slip > 18:
+                    recommendations.append(f"TRACTION: Increase differential on-throttle preload +2 clicks (wheel {wheel[-1]})")
+                    issues_found.append("Wheelspin on corner exit")
+                    break
+
+    # === BRAKING STABILITY ===
+    braking = df[(df['brake'] > 0.6) & (df['speed_kmh'] > 60)]
+    if len(braking) > 30:
+        lock_detected = False
+        for wheel in ['wheel_speed_0', 'wheel_speed_1', 'wheel_speed_2', 'wheel_speed_3']:
+            if wheel in braking.columns:
+                speed_drop = braking[wheel].diff().mean()
+                if speed_drop < -8:
+                    lock_detected = True
+                    break
+        if lock_detected:
+            recommendations.append("BRAKING: Move brake bias forward 1-2% or reduce rear brake pressure — rear lock detected")
+            issues_found.append("Brake lockup")
+
+    # === Remove duplicates while keeping order ===
+    seen = set()
+    final_recs = []
+    for rec in recommendations:
+        if rec not in seen:
+            seen.add(rec)
+            final_recs.append(rec)
+
+    # === OUTPUT ===
+    st.subheader("What the lap actually shows")
+    if issues_found:
+        for issue in issues_found:
+            st.error(issue)
+    else:
+        st.success("No major balance issues detected in this lap.")
+
+    st.subheader("Setup Recommendations")
+    if final_recs:
+        for rec in final_recs:
+            st.warning(rec)
+    else:
+        st.info("Car looks reasonably balanced. Try a different lap or push harder to see clearer issues.")
+
+    # Quick metrics
+    st.subheader("Quick Lap Stats")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Max Speed", f"{df['speed_kmh'].max():.0f} km/h")
+    col2.metric("Avg Speed", f"{df['speed_kmh'].mean():.0f} km/h")
+    col3.metric("Samples Analyzed", len(df))
+
 else:
-    st.info("👆 Upload your F1 25/26 telemetry CSV to get setup recommendations.")
+    st.info("Upload a CSV from F1 2025 or 2026 and I'll give you real, lap-specific setup advice instead of the same two lines every time.")
