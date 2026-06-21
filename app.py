@@ -18,8 +18,7 @@ if uploaded_file is not None:
     issues = []
     recs = []
 
-    # Extreme setup detector (added because your Montreal + Silverstone files show insane numbers that actually work)
+    # Extreme setup detector
     front_wing = int(df['wing_setup_0'].iloc[0]) if 'wing_setup_0' in df.columns and len(df) > 0 else 0
     rear_wing = int(df['wing_setup_1'].iloc[0]) if 'wing_setup_1' in df.columns and len(df) > 0 else 0
-    front_arb = int(df['arb_setup_0'].iloc[0]) if 'arb_setup_0' in df.columns and len(df) > 0 else 0
-    rear_arb = int(df['arb_setup_1'].iloc[0]) if 'arb_setup_1' in
+    front_arb = int(df['arb_setup_0'].iloc[
